@@ -1,14 +1,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <esp32cam.h>
-
-#define full_option 0x24
-#define motion_ambient 0x25
-#define motion 0x26
-
-#define V_APP   0x1
-#define V_Major 0x0
-#define V_Minor 0x18
+#include "nsensor.h"
 
 int counter = 0;
 
@@ -266,12 +259,19 @@ void Scanner ()
   Serial.println ();
   Serial.println ("Reading Mac");
   byte count = 0;
+ 
+  /*I2C address for MAC Eeprom**/
   uint8_t a = 94;
+  
+  /**I2C register address- Starting position for MAC byte*/
   uint8_t v = 154;
+  
+  /**Number of bytes (MAC)*/
   uint8_t byt = 6;
   int length;
   
   Wire.begin();
+
   for (byte i = 8; i < 120; i++)
   {
     Wire.beginTransmission (i);        // Begin I2C transmission Address (i)
@@ -309,71 +309,82 @@ void Scanner ()
   Serial.print(" = ");
   Serial.println(mac_length);
 
-  sprintf(sensor_version,"%i.%i.%i", V_APP, V_Major, V_Minor);
+  sprintf(sensor_version,"%i.%i.%i", V_APP, V_MAJOR, V_MINOR);
   length = strlen(sensor_version);
   sprintf(ver_length, "%i", length);
   Serial.println(sensor_version);
 
 }
 
+/*This will run only once during start up*/
 void setup()
 {
-  //Serial.begin(Baud Rate, Data Protocol, Txd pin, Rxd pin);
-
+  /**Setting the baud rate for serial console*/
   Serial.begin(115200); // Terminal
 
-  Sender.begin(2000000, SERIAL_8N1, 13, 12); // RX TX communication box - esp
+  /*Setting the baud rate for serial data transmission **/
+  Sender.begin(BIT_RATE, SERIAL_8N1, 13, 12); // RX TX communication box - esp
 
-  Wire.begin (4, 14);   // sda= GPIO_04 /scl= GPIO_14
+
+ /**Setting up camera
+  * sda= GPIO_04 
+  * scl= GPIO_14
+  */
+  Wire.begin (GPIO_04, GPIO_14);  
   {
     using namespace esp32cam;
     Config cfg;
     cfg.setPins(pins::AiThinker);
-    // cfg.setResolution(hiRes);
     cfg.setResolution(semisqr);
     cfg.setBufferCount(1);
     cfg.setJpeg(80);
     bool ok = Camera.begin(cfg);
     Serial.println(ok ? "CAMERA OK" : "CAMERA FAIL");
   }
+
+  /**Here it prints MAC address and serial number of the sensor*/
   Scanner();
 }
 
+/**This is the main app code, It loops here for the input from the 
+ * ncontroller */
 void loop() 
 {
+
+ /*Wait for the command from ncontroller serially */
   while (Sender.available())
   {
-    char RxdChar = Sender.read();
+    char ncontroller_cmd = Sender.read();
     Serial.print("RX : ");
-    Serial.println(RxdChar);
+    Serial.println(ncontroller_cmd);
 
-    if(RxdChar == 0x55)
+    if(ncontroller_cmd == GET_RAW_CAMERA_IMAGE)
     { // U
       Serial.println("OK!");
-      Sender.write(0x50); // P
+      Sender.write(0x50);
       getframe();
     }
-    else if(RxdChar == 0x42)
-    { //B//66
+    else if(ncontroller_cmd == SYNC_MAC_CMD)
+    { 
         sync_mac();
     }
-    else if(RxdChar == 0x4C)
+    else if(ncontroller_cmd == READ_AMBIENT_CMD)
     { // L
         ambient_read();
     }
-    else if(RxdChar == 0x5E)
-    { // ^ sensor type
-      Sender.write(full_option);
+    else if(ncontroller_cmd == GET_SENSOR_TYPE_CMD)
+    {
+      Sender.write(FULL_OPTION_TYPE);
     }
-    else if(RxdChar == 0x5D)
-    { // ]
+    else if(ncontroller_cmd == GET_SENSOR_FIRMWARE_VERSION)
+    { 
       send_version();
     }
-    else if(RxdChar == 0x7E)
-    { // ~
-  
+    else if(ncontroller_cmd == 0x7E)
+    { 
+      /*tbd*/
     }
-    else if(RxdChar == 0x7F)
+    else if(ncontroller_cmd == CHANGE_RESOLUTION_CMD)
     { // [DEL]
       Serial.println("Change Resolution");
       ESP.restart();
@@ -381,69 +392,4 @@ void loop()
   }
 }
 
-  // buffer_size[strlen(buffer_size)] = "\n";
-  // server.setContentLength(frame->size());
-  // server.send(200, "image/jpeg");
-  // WiFiClient client = server.client();
-  // frame->writeTo(client);
-
-  // while(1){
-  //   if( 0x47 == Sender.read()){
-  //     Serial.println("Sokpa");
-  //     break;
-  //   }
-  // }
-
-  // do{
-  //     local_FS
-  //   }while(x);
-  // for ( size_t i = 0; i < m_size; i += os.write(&m_data[i], m_size - i) ) {
-  // for ( size_t i = 0; i < frame->size(); i += Sender.write(&frame->data()[i], frame->size() - i) ) {
-
-  // for ( size_t i = 0; i < frame->size(); i += Sender.write(&frame->data()[i], frame->size() - i) ) {
-  //       // Sender.write(&frame->data()[i], frame->size() - i);
-  // }
-
-  // Sender.write(&frame->data()[0], frame->size())
-  // Sender.write(&frame->data()[0], local_FS);
-
-  // for (byte i = 8; i < 120; i++)
-  // {
-  //   Wire.beginTransmission (i);          // Begin I2C transmission Address (i)
-  //   if (Wire.endTransmission () == 0)  // Receive 0 = success (ACK response) 
-  //   {
-  //     Serial.print ("Found address: ");
-  //     Serial.print (i, DEC);
-  //     Serial.print (" (0x");
-  //     Serial.print (i, HEX);     // PCF8574 7 bit address
-  //     Serial.println (")");
-  //     count++;
-  //   }
-  // }
-
-  // Serial.print ("Found ");      
-  // Serial.print (count, DEC);        
-  // numbers of devices
-  // Serial.println (" device(s).");
-
-
-  // int local_ctr= 0;
-  // for ( int i = 0; i < local_FS; i++) {
-  //   Sender.write(&frame->data()[i], 1);
-  // }
-  // uint8_t *data;
-  // frame->writeTo(Sender);
-  // Sender.write('\r\n\t');
-
-  // while(1){
-  //   if( 0x44 == Sender.read()){
-  //     Serial.println("Ready ");
-  //     break;
-  //   }
-  // }
-
-  // if( 0x44 == Sender.read()){
-  //   Serial.println("Re D!");
-  //   return true;
-  //   // break;
-  // }
+ 
