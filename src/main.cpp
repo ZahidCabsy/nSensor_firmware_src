@@ -3,17 +3,15 @@
 #include <esp32cam.h>
 #include "nsensor.h"
 
-int counter = 0;
+#define HANDSHAKE_BYTE        0x47
+
 
 HardwareSerial Sender(1);
 
-const int analogPin = 2;
-
-uint8_t macbuff[6];
-char sensor_mac[25];
-char mac_length[3];
-char ver_length[3];
-char sensor_version[10];
+static char sensor_mac[25];
+static char mac_length[3];
+static char ver_length[3];
+static char sensor_version[10];
 
 static auto hiRes   = esp32cam::Resolution::find(800, 600);
 static auto semisqr = esp32cam::Resolution::find(1280, 1024);
@@ -21,240 +19,281 @@ static auto XGA     = esp32cam::Resolution::find(1024, 768);
 static auto HD      = esp32cam::Resolution::find(1280, 720);
 static auto UHD     = esp32cam::Resolution::find(1600, 1200);
 
-bool handshake(int timeout)
+bool handshake(int handshakeTimeout)
 {
-  char RX;
+  char receivedByte;
   auto startTime = millis();
 
-  while(1)
+  while (true)
   {
-    if(Sender.available()) {
-      RX = Sender.read();
-      if( RX == 0x47 ) {
+    if (Sender.available())
+    {
+      receivedByte = Sender.read();
+      if (receivedByte == HANDSHAKE_BYTE)
+      {
         Serial.println("G! ");
-        return true;
-      }
-      if ( millis() - startTime > static_cast<unsigned long>(timeout) ) {
-        break;
-      }
-    }
-  }
-  Serial.printf("Handshake Serial timeOut!!!");
-  return false;
-}
-
-int get_response(int buff)
-{
-  char RX;
-  char lbuff[20];
-  sprintf(lbuff, "%d\0", buff);
-  auto startTime = millis();
-  Sender.write(lbuff);
-
-  while(1)
-  {
-    if(Sender.available()) {
-      RX = Sender.read();
-      if( RX == 0x47 ) {
-        return 0;
-      }
-      if ( millis() - startTime > static_cast<unsigned long>(1500) ) {
-        break;
-      }
-    }
-    if ( millis() - startTime > static_cast<unsigned long>(1500) ) {
-        break;
-    }
-  }
-  Serial.printf("Handshake Serial timeOut!!!");
-  return 1;
-}
-
-bool ambient_read() {
-
-  double ambVolt;
-  char amb_len[2];
-  char ambient[5];
-  char RX;
-
-  ambVolt = analogReadMilliVolts(analogPin);
-  // Serial.printf("Ambient Voltage : %lf\n", ambVolt);
-  double milAmb = (ambVolt / 1000);
-  // Serial.printf("milAmb  : %lf\n", milAmb);
-  int lux = ( (milAmb / 3) * 1125 );
-  // Serial.printf("Ambient  : %i\n", lux);
-  sprintf(ambient,"%d", lux);
-  int length = strlen(ambient);
-  sprintf(amb_len, "%d", length);
-  // Serial.printf("Char Ambient  : %s\n", ambient);
-  // Serial.printf("Char Amb len  : %s\n", amb_len);
-  auto startTime = millis();
-  Sender.write(0x41);
-
-  while(1)
-  {
-    if(Sender.available()) {
-      RX = Sender.read();
-      if( RX == 0x5A ) { // Z
-        Sender.write(ambient);
-        return true;
-      }
-      if( RX == 0x44 ) { // D
-          Sender.write(amb_len);
-      }
-      if ( millis() - startTime > static_cast<unsigned long>(2000) ) {
-        break;
-      }
-    }
-    if ( millis() - startTime > static_cast<unsigned long>(2000) ) {
-      break;
-    }
-  }
-  Serial.printf("Ambient Read timeOut!!!");
-  return false;
-}
-
-bool send_version()
-{
-  char RX;
-  auto startTime = millis();
-  Sender.write(0x41);
-  while(1)
-  {
-    if(Sender.available()) {
-      RX = Sender.read();
-      if( RX == 0x5A ) { // Z
-        Sender.write(sensor_version);
-        return true;
-      }
-      if( RX == 0x44 ) { // D
-          Sender.write(ver_length);
-      }
-      if ( millis() - startTime > static_cast<unsigned long>(2000) ) {
         break;
       }
     }
 
-    if ( millis() - startTime > static_cast<unsigned long>(2000) ) {
+    if (millis() - startTime > static_cast<unsigned long>(handshakeTimeout))
+    {
       break;
     }
   }
 
-  Serial.printf("Version Sync timeOut!!!");
-  return false;
+  if (receivedByte == HANDSHAKE_BYTE)
+  {
+    return true;
+  }
+  else
+  {
+    Serial.printf("Handshake Serial timeOut!!!");
+    return false;
+  }
+}
+
+int getResponse(int bufferSize)
+{
+	char RX;
+  	char bufferSizeStr[20];
+  	sprintf(bufferSizeStr, "%d\0", bufferSize);
+  	auto startTime = millis();
+  	
+	Sender.write(bufferSizeStr);
+
+	while (true)
+   {
+   	if (Sender.available())
+    	{
+      	RX = Sender.read();
+      	if (RX == 0x47)
+      	{
+        		return 0;
+      	}
+      	if (millis() - startTime > static_cast<unsigned long>(kResponseTimeout))
+      	{
+        		break;
+      	}
+    	}
+    	if (millis() - startTime > static_cast<unsigned long>(kResponseTimeout))
+    	{
+      	break;
+    	}
+   }
+	Serial.printf("Handshake serial timeout!");
+  	return 1;
+}
+
+bool handleReadAmbient() 
+{
+	double ambVolt;
+  	char ambLen[2];
+  	char ambient[5];
+  	char RX;
+  	const int analogPin = 2;
+	
+	/*read and calculate ambient*/
+  	ambVolt = analogReadMilliVolts(analogPin);
+	double milAmb = (ambVolt / 1000);
+  	int lux = ( (milAmb / 3) * 1125 );
+  	sprintf(ambient,"%d", lux);
   
-}
-
-bool sync_mac()
-{
-  char RX;
-  auto startTime = millis();
-  Sender.write(0x41);
-  while(1)
-  {
-    if(Sender.available()) {
-      RX = Sender.read();
-      if( RX == 0x5A ) { // Z
-        Sender.write(sensor_mac);
-        return true;
-      }
-      if( RX == 0x44 ) { // D
-          Sender.write(mac_length);
-      }
-      if ( millis() - startTime > static_cast<unsigned long>(2000) ) {
-        break;
-      }
-    }
-
-    if ( millis() - startTime > static_cast<unsigned long>(2000) ) {
-      break;
-    }
-  }
-
-  Serial.printf("Mac Sync timeOut!!!");
-  return false;
+	int length = strlen(ambient);
+   sprintf(ambLen, "%d", length);
   
+	auto startTime = millis();
+  	Sender.write(0x41);
+
+  	while (true)
+  	{
+   	if (Sender.available())
+    	{
+      	RX = Sender.read();
+      	if (RX == 0x5A) // Z
+      	{
+        		Sender.write(ambient);
+        		break;
+      	}
+      	if (RX == 0x44) // D
+      	{
+         	Sender.write(ambLen);
+      	}
+      	if (millis() - startTime > static_cast<unsigned long>(kAmbientReadTimeout))
+      	{
+        		break;
+      	}
+    	}
+    	
+		if (millis() - startTime > static_cast<unsigned long>(kAmbientReadTimeout))
+    	{
+      	break;
+    	}
+  	}
+   
+	Serial.printf("Ambient read timeout!");
+  	return false;
 }
 
-void getframe()
+bool handleGetSensorFirmwareVersion(char *sensor_version, char *ver_length)
 {
-  char buffer_size[20];
-  int local_FS = 0;
-  int FS_length = 0;
-  char FS_buff_len[10];
-  // bool rc;
+	char RX;
+  	auto startTime = millis();
+  	Sender.write(0x41);
+  	while (true)
+  	{
+   	if (Sender.available())
+    	{
+      	RX = Sender.read();
+      	if (RX == 0x5A) // Z
+      	{
+        		Sender.write(sensor_version);
+        		break;
+      	}
+      	if (RX == 0x44) // D
+      	{
+         	Sender.write(ver_length);
+      	}
+      	if (millis() - startTime > static_cast<unsigned long>(kVersionSyncTimeout))
+      	{
+        		break;
+      	}
+    	}
 
-  auto frame = esp32cam::capture();
-  if (frame == nullptr) {
-    Serial.println("CAPTURE FAIL");
-    return;
-  }
+    	if (millis() - startTime > static_cast<unsigned long>(kVersionSyncTimeout))
+    	{
+      	break;
+    	}
+   }
 
-  local_FS = static_cast<int>(frame->size());
-
-  Serial.printf("CAPTURE OK %dx%d %db\n", frame->getWidth(), frame->getHeight(), local_FS);
-
-  sprintf(buffer_size, "%d\r\n", local_FS);
-
-  FS_length = strlen(buffer_size);
-
-  Serial.printf("FS Length : %d\n", FS_length);
-
-  sprintf(FS_buff_len, "%d\r\n", FS_length);
-
-  Sender.write(FS_buff_len);
-
-  if(handshake(2000) != true) {
-    Serial.println("FS_length Handshake Fail");
-    return;
-  }
-
-  Sender.write(buffer_size);
-
-  if(handshake(2000) != true) {
-    Serial.println("buffer_size Handshake Fail");
-    return;
-  }
-
-  int counter = 1;
-  int inc = 4096;
-  int remaining = local_FS - inc;
-  int rc;
-
-  while(1)
-  {
-    printf("Start %d : \n", (counter-1));
-    rc = get_response(inc);
-    if(rc == 0) {
-      Sender.write(&frame->data()[counter-1], inc);
-
-      if(remaining == 0) {
-        printf("TS");
-        break;
-      }
-      else {
-        remaining = remaining - inc;
-        printf("remaining : %d\n", remaining);
-        if(remaining > 0) {
-          inc = 4096;
-          counter = counter + inc;
-        }
-        else {
-          inc = 4096 + remaining;
-          counter = counter + 4096;
-          printf("Final : %d\n", inc);
-          remaining = 0;
-        }
-      }
-    }
-    else {
-      Serial.print("TE\n");
-      break;
-    }
-  }
+  	Serial.printf("Version sync timeout!");
+  	return false;
 }
 
-void Scanner ()
+bool handleSyncMac(char *sensor_mac, char *mac_length)
+{
+	char RX;
+	auto startTime = millis();
+  	Sender.write(0x41);
+  	while (true)
+  	{
+   	if (Sender.available())
+    	{
+      	RX = Sender.read();
+      	if (RX == 0x5A) // Z
+      	{
+        		Sender.write(sensor_mac);
+        		return true;
+      	}
+      	if (RX == 0x44) // D
+      	{
+         	Sender.write(mac_length);
+      	}
+    	}
+
+    	if (millis() - startTime > static_cast<unsigned long>(kSyncMacTimeout))
+    	{
+      	break;
+    	}
+  	}
+
+  	Serial.printf("Mac Sync timeout!");
+  	return false;
+}
+
+
+void getFrame()
+{
+	/*To store the captured frame size*/
+	char bufferSize[20];
+
+  	int frameSize = 0;
+  	int bufferSizeLength = 0;
+  	char bufferSizeLengthBuffer[10];
+
+	/*capture frame*/
+	auto frame = esp32cam::capture();
+  	if (frame == nullptr)
+  	{
+   	Serial.println("CAPTURE FAIL");
+    	return;
+  	}
+
+	frameSize = static_cast<int>(frame->size());
+
+  	Serial.printf("CAPTURE OK %dx%d %db\n", frame->getWidth(), frame->getHeight(), frameSize);
+
+  	sprintf(bufferSize, "%d\r\n", frameSize);
+
+  	bufferSizeLength = strlen(bufferSize);
+
+  	Serial.printf("Buffer Size Length: %d\n", bufferSizeLength);
+
+  	sprintf(bufferSizeLengthBuffer, "%d\r\n", bufferSizeLength);
+
+  	/*First send the captured frame length to ncontroller*/
+  	Sender.write(bufferSizeLengthBuffer);
+  	if (handshake(2000) != true)
+  	{
+   	Serial.println("Buffer Size Length Handshake Fail");
+    	return;
+  	}
+   /*After handshake send the size of captured frame*/
+  	Sender.write(bufferSize);
+  	if (handshake(2000) != true)
+  	{
+   	Serial.println("Buffer Size Handshake Fail");
+    	return;
+  	}
+
+  	constexpr int chunkSize = 4096;
+  	int counter = 1;
+  	int remaining = frameSize - chunkSize;
+  	int rc;
+
+	while (true)
+  	{
+   	printf("Start %d : \n", (counter - 1));
+	 	
+		/*Inform the ncontroller of outgoing frame chunk size and wait for response*/
+    	rc = getResponse(chunkSize);
+		
+		/*If ncontroller sends acknowlegement start sending frame*/
+		if (rc == 0)
+    	{
+      	Sender.write(&frame->data()[counter - 1], chunkSize);
+
+      	if (remaining == 0)
+      	{
+        		printf("TS");
+        		break;
+      	}
+      	else
+      	{
+      		remaining = remaining - chunkSize;
+        		printf("remaining : %d\n", remaining);
+        		if (remaining > 0)
+        		{
+         		counter += chunkSize;
+        		}
+        		else
+        		{
+         		int finalChunkSize = chunkSize + remaining;
+          		counter += chunkSize;
+          		printf("Final : %d\n", finalChunkSize);
+          		remaining = 0;
+        		}
+      	}
+    	}
+    	else
+    	{
+      	Serial.print("TE\n");
+      	break;
+    	}
+  	}
+}
+
+void getNsensorMacSerialno(char *sensor_mac, char *mac_length, char *ver_length)
 {
   Serial.println ();
   Serial.println ("Reading Mac");
@@ -268,6 +307,9 @@ void Scanner ()
   
   /**Number of bytes (MAC)*/
   uint8_t byt = 6;
+
+  uint8_t macbuff[6];
+
   int length;
   
   Wire.begin();
@@ -316,6 +358,25 @@ void Scanner ()
 
 }
 
+void handleGetRawCameraImage()
+{
+  Serial.println("OK!");
+  Sender.write(0x50);
+  getFrame();
+}
+
+/*Change here while compiling, based on the sensor device requirements*/
+void handleGetSensorType()
+{
+  Sender.write(FULL_OPTION_TYPE);
+}
+
+void handleChangeResolution()
+{
+  Serial.println("Change Resolution");
+  ESP.restart();
+}
+
 /*This will run only once during start up*/
 void setup()
 {
@@ -342,54 +403,43 @@ void setup()
     Serial.println(ok ? "CAMERA OK" : "CAMERA FAIL");
   }
 
-  /**Here it prints MAC address and serial number of the sensor*/
-  Scanner();
+  /**Here it gets MAC address and serial number of the nsensor*/
+  getNsensorMacSerialno((sensor_mac, mac_length, ver_length);
 }
 
 /**This is the main app code, It loops here for the input from the 
  * ncontroller */
 void loop() 
 {
+	while (Sender.available())
+	{
+		char ncontroller_cmd = Sender.read();
+    	Serial.print("RX : ");
+    	Serial.println(ncontroller_cmd);
 
- /*Wait for the command from ncontroller serially */
-  while (Sender.available())
-  {
-    char ncontroller_cmd = Sender.read();
-    Serial.print("RX : ");
-    Serial.println(ncontroller_cmd);
-
-    if(ncontroller_cmd == GET_RAW_CAMERA_IMAGE)
-    { // U
-      Serial.println("OK!");
-      Sender.write(0x50);
-      getframe();
-    }
-    else if(ncontroller_cmd == SYNC_MAC_CMD)
-    { 
-        sync_mac();
-    }
-    else if(ncontroller_cmd == READ_AMBIENT_CMD)
-    { // L
-        ambient_read();
-    }
-    else if(ncontroller_cmd == GET_SENSOR_TYPE_CMD)
-    {
-      Sender.write(FULL_OPTION_TYPE);
-    }
-    else if(ncontroller_cmd == GET_SENSOR_FIRMWARE_VERSION)
-    { 
-      send_version();
-    }
-    else if(ncontroller_cmd == 0x7E)
-    { 
-      /*tbd*/
-    }
-    else if(ncontroller_cmd == CHANGE_RESOLUTION_CMD)
-    { // [DEL]
-      Serial.println("Change Resolution");
-      ESP.restart();
-    }
-  }
+    	switch (ncontroller_cmd)
+    	{
+    		case GET_RAW_CAMERA_IMAGE:
+      		handleGetRawCameraImage();
+      		break;
+    		case SYNC_MAC_CMD:
+      		handleSyncMac(sensor_mac, mac_length);
+      		break;
+    		case READ_AMBIENT_CMD:
+      		handleReadAmbient();
+      		break;
+    		case GET_SENSOR_TYPE_CMD:
+      		handleGetSensorType();
+      		break;
+    		case GET_SENSOR_FIRMWARE_VERSION:
+      		handleGetSensorFirmwareVersion(sensor_version, ver_length);
+      		break;
+    		case CHANGE_RESOLUTION_CMD:
+      		handleChangeResolution();
+      		break;
+    		default :
+      		break;
+    	}
+  	}
 }
 
- 
