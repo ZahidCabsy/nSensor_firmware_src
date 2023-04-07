@@ -16,7 +16,7 @@ static ai detection, ambient and motion*/
 #define V_MAJOR                     0x0
 
 /*Sensor Firmware Version Minor Number*/
-#define V_MINOR                     0x18
+#define V_MINOR                     0x0
 
 #define BIT_RATE                    2000000
 
@@ -46,5 +46,7 @@ nsensor are 3 types
 #define CHANGE_RESOLUTION_CMD        0x7F
 
 #define GET_RAW_CAMERA_IMAGE         0x55
+
+#define GET_SERIAL_NO                0x7E
 
 

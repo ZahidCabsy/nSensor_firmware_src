@@ -10,8 +10,11 @@ HardwareSerial Sender(1);
 const int analogPin = 2;
 
 uint8_t macbuff[6];
+uint8_t serbuff[16];
 char sensor_mac[25];
+char serial_no[50];
 char mac_length[3];
+char ser_length[3];
 char ver_length[3];
 char sensor_version[10];
 
@@ -269,7 +272,7 @@ void Scanner ()
   /**Number of bytes (MAC)*/
   uint8_t byt = 6;
   int length;
-  
+  int length1;
   Wire.begin();
 
   for (byte i = 8; i < 120; i++)
@@ -305,9 +308,37 @@ void Scanner ()
   sprintf(sensor_mac,"%x:%x:%x:%x:%x:%x", macbuff[0], macbuff[1], macbuff[2], macbuff[3], macbuff[4], macbuff[5]);
   length = strlen(sensor_mac);
   sprintf(mac_length, "%i", length);
+  Serial.println(""); 
+  Serial.print("Nsensor MAC = ");
   Serial.println(sensor_mac);
   Serial.print(" = ");
   Serial.println(mac_length);
+
+
+ Wire.beginTransmission (a);
+  Wire.write(128);
+  Wire.endTransmission ();
+  Wire.requestFrom(a, 16);
+  
+  if (Wire.available() != 16) {
+    Serial.print("Serial Readerror");
+  }
+
+  for(int x=0; x<16; x++) {
+    serbuff[x] = Wire.read();
+    Serial.print (serbuff[x], HEX);
+  }
+
+  sprintf(serial_no,"%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x", serbuff[0], serbuff[1], serbuff[2], serbuff[3], serbuff[4], serbuff[5],
+     serbuff[6], serbuff[7], serbuff[8], serbuff[9], serbuff[10], serbuff[11],
+     serbuff[12], serbuff[13], serbuff[14], serbuff[15] );
+  length1 = strlen(serial_no);
+  sprintf(ser_length, "%i", length1);
+  Serial.println(""); 
+  Serial.print("Nsensor Serial Number = ");
+  Serial.println(serial_no);
+  Serial.print(" = ");
+  Serial.println(ser_length);
 
   sprintf(sensor_version,"%i.%i.%i", V_APP, V_MAJOR, V_MINOR);
   length = strlen(sensor_version);
@@ -350,7 +381,7 @@ void setup()
  * ncontroller */
 void loop() 
 {
-
+   
  /*Wait for the command from ncontroller serially */
   while (Sender.available())
   {
@@ -374,13 +405,13 @@ void loop()
     }
     else if(ncontroller_cmd == GET_SENSOR_TYPE_CMD)
     {
-      Sender.write(FULL_OPTION_TYPE);
+      Sender.write(MOTION_AMBIENT_TYPE);
     }
     else if(ncontroller_cmd == GET_SENSOR_FIRMWARE_VERSION)
     { 
       send_version();
     }
-    else if(ncontroller_cmd == 0x7E)
+    else if(ncontroller_cmd == GET_SERIAL_NO)
     { 
       /*tbd*/
     }
